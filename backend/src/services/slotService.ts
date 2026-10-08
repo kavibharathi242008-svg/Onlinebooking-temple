@@ -1,6 +1,9 @@
 import { queryAll, queryOne, runSql, saveDatabase } from '../config/database';
 import { v4 as uuidv4 } from 'uuid';
 
+/**
+ * Slot entity representation with capacity allocations and remaining quotas.
+ */
 export interface TempleSlot {
   id: string;
   temple_id: string;
@@ -17,6 +20,16 @@ export interface TempleSlot {
   paid_available: number;
 }
 
+/**
+ * Retrieves existing slots or automatically slices active temple session timings
+ * into granular, non-overlapping intervals (e.g. 60-minute duration slots).
+ * Applies festival multipliers if the target date is registered under `special_days`.
+ * 
+ * @param {string} templeId - Unique temple identifier.
+ * @param {string} dateStr - Target date string in YYYY-MM-DD format.
+ * @returns {TempleSlot[]} Chronologically ordered list of slots with calculated availabilities.
+ * @throws {Error} If temple is not found.
+ */
 export function generateOrGetSlots(templeId: string, dateStr: string): TempleSlot[] {
   // Check if slots already exist for this temple & date
   let slots = queryAll<any>(

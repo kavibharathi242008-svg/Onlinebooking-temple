@@ -1,6 +1,9 @@
 import { queryOne, runInTransaction, runSql, saveDatabase, queryAll } from '../config/database';
 import { v4 as uuidv4 } from 'uuid';
 
+/**
+ * Devotee visitor payload for slot booking.
+ */
 export interface VisitorInput {
   name: string;
   age: number;
@@ -9,6 +12,9 @@ export interface VisitorInput {
   id_proof_number?: string;
 }
 
+/**
+ * Parameters required to execute atomic darshan booking.
+ */
 export interface CreateBookingParams {
   temple_id: string;
   slot_id: string;
@@ -23,6 +29,23 @@ export interface CreateBookingParams {
   counter_number?: string;
 }
 
+/**
+ * Atomically reserves tickets for online devotees or walk-in offline counter visitors.
+ * Executed inside an ACID database transaction lock (`runInTransaction`), preventing race
+ * conditions, double-allocations, and overcapacity violations.
+ * 
+ * Invariants enforced:
+ * - Minimum of 1 visitor required.
+ * - Slot and temple validation.
+ * - Strict remaining capacity check: (currentBooked + requestedCount <= maxCapacity).
+ * - Automatic atomic counter update (`free_booked` or `paid_booked`).
+ * - Slot status progression ('AVAILABLE' -> 'LIMITED' -> 'FULL').
+ * - Generates unique reference code with 'TD' prefix and encrypted QR payload.
+ * 
+ * @param {CreateBookingParams} params - Devotee booking parameters and visitor array.
+ * @returns {object} Confirmed booking record, visitor roster, and QR payload.
+ * @throws {Error} If capacity is exhausted or invalid parameters provided.
+ */
 export function createBooking(params: CreateBookingParams) {
   const {
     temple_id,
@@ -172,6 +195,12 @@ export function createBooking(params: CreateBookingParams) {
   });
 }
 
+/**
+ * Looks up booking record, temple metadata, time slot details, and visitor roster by reference code.
+ * 
+ * @param {string} bookingRef - Unique human-readable booking reference (e.g. 'TD202603204928').
+ * @returns {object | null} Complete enriched booking record, or null if not found.
+ */
 export function getBookingByRef(bookingRef: string) {
   const booking = queryOne<any>('SELECT * FROM bookings WHERE booking_ref = ?', [bookingRef]);
   if (!booking) return null;
@@ -192,6 +221,14 @@ export function getBookingByRef(bookingRef: string) {
   };
 }
 
+/**
+ * Cancels an active confirmed booking and atomically rolls back allocated capacity
+ * to the corresponding slot's quota pool inside a transactional lock.
+ * 
+ * @param {string} bookingRef - Booking reference code.
+ * @returns {{ success: boolean, message: string }} Cancellation outcome.
+ * @throws {Error} If booking is not found or already cancelled.
+ */
 export function cancelBooking(bookingRef: string) {
   return runInTransaction(() => {
     const booking = queryOne<any>('SELECT * FROM bookings WHERE booking_ref = ?', [bookingRef]);
@@ -211,6 +248,14 @@ export function cancelBooking(bookingRef: string) {
   });
 }
 
+/**
+ * Verifies QR e-pass at temple gate scanner consoles and marks ticket status as ATTENDED.
+ * Prevents fraudulent entry and duplicate scanning by asserting current status.
+ * 
+ * @param {string} bookingRef - Scanned booking reference code.
+ * @returns {object} Verification response with attendee details and attendance status.
+ * @throws {Error} If booking is not found or was previously cancelled.
+ */
 export function verifyAndAttendBooking(bookingRef: string) {
   return runInTransaction(() => {
     const booking = getBookingByRef(bookingRef);

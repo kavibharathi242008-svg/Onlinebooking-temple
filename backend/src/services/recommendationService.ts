@@ -1,6 +1,9 @@
 import { queryAll, queryOne, runSql, saveDatabase } from '../config/database';
 import { v4 as uuidv4 } from 'uuid';
 
+/**
+ * AI recommendation data structure for dynamic slot capacity optimization.
+ */
 export interface AIRecommendation {
   id: string;
   temple_id: string;
@@ -17,6 +20,16 @@ export interface AIRecommendation {
   created_at: string;
 }
 
+/**
+ * Evaluates multi-factor signals (historical booking demand, peak morning/evening
+ * windows, weekend surges, and festival multipliers from `special_days`) to generate
+ * intelligent dynamic slot capacity recommendations for temple administrative staff.
+ * 
+ * @param {string} templeId - Target temple identifier.
+ * @param {string} dateStr - Target date string in YYYY-MM-DD format.
+ * @returns {AIRecommendation[]} List of actionable capacity optimization recommendations.
+ * @throws {Error} If temple is not found.
+ */
 export function generateSlotRecommendations(templeId: string, dateStr: string): AIRecommendation[] {
   const temple = queryOne<any>('SELECT * FROM temples WHERE id = ?', [templeId]);
   if (!temple) throw new Error('Temple not found');
