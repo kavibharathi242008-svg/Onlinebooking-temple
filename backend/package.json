@@ -7,7 +7,9 @@
     "dev": "ts-node src/server.ts",
     "build": "tsc",
     "start": "node dist/server.js",
-    "test:e2e": "ts-node src/scripts/verifySystem.ts"
+    "test:unit": "ts-node src/scripts/unitTests.ts",
+    "test:e2e": "ts-node src/scripts/verifySystem.ts",
+    "test": "npm run test:unit && npm run test:e2e"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",

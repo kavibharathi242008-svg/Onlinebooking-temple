@@ -12,6 +12,7 @@ import { AICrowdTechPage } from './pages/AICrowdTechPage';
 import { HelpCenterPage } from './pages/HelpCenterPage';
 import { TicketLookupPage } from './pages/TicketLookupPage';
 import { CCTVCrowdSimulator } from './components/CCTVCrowdSimulator';
+import { ErrorBoundary } from './components/ErrorBoundary';
 
 export function App() {
   const [currentTab, setCurrentTab] = useState<string>('home');
@@ -82,7 +83,9 @@ export function App() {
       <Navbar currentTab={currentTab} setCurrentTab={setCurrentTab} />
 
       <main className="flex-1">
-        {renderContent()}
+        <ErrorBoundary key={currentTab} onReset={() => setCurrentTab('home')}>
+          {renderContent()}
+        </ErrorBoundary>
       </main>
 
       <Footer setCurrentTab={setCurrentTab} />

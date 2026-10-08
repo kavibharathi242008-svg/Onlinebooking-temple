@@ -5,6 +5,13 @@ import path from 'path';
 let db: Database | null = null;
 const dbFilePath = path.join(__dirname, '../../database.sqlite');
 
+/**
+ * Initializes and returns the SQLite database instance using sql.js.
+ * Loads existing database from disk (database.sqlite) if available,
+ * initializes schema if missing, and creates persistent state.
+ * 
+ * @returns {Promise<Database>} Active sql.js Database instance.
+ */
 export async function getDatabase(): Promise<Database> {
   if (db) return db;
 
@@ -22,6 +29,10 @@ export async function getDatabase(): Promise<Database> {
   return db;
 }
 
+/**
+ * Persists the current in-memory SQLite database state to disk.
+ * Exports the binary SQLite representation to buffer and writes to `database.sqlite`.
+ */
 export function saveDatabase(): void {
   if (!db) return;
   const data = db.export();
@@ -31,7 +42,16 @@ export function saveDatabase(): void {
 
 let inTransaction = false;
 
-// Transaction wrapper
+/**
+ * Executes a callback within a strict ACID database transaction.
+ * Issues BEGIN TRANSACTION, executes callback, and issues COMMIT.
+ * Automatically executes ROLLBACK if any error or assertion fails during execution.
+ * 
+ * @template T
+ * @param {() => T} callback - Synchronous database modification logic.
+ * @returns {T} Return value of the callback.
+ * @throws {Error} Propagates any error encountered within transaction.
+ */
 export function runInTransaction<T>(callback: () => T): T {
   if (!db) throw new Error('Database not initialized');
   if (inTransaction) {
@@ -56,7 +76,14 @@ export function runInTransaction<T>(callback: () => T): T {
   }
 }
 
-// Helper to query all rows as typed objects
+/**
+ * Helper utility to query all matching rows as typed Javascript objects.
+ * 
+ * @template T
+ * @param {string} sql - Parameterized SQL query string.
+ * @param {any[]} [params=[]] - SQL binding parameters to guard against injection.
+ * @returns {T[]} Array of result row objects mapped to keys.
+ */
 export function queryAll<T = any>(sql: string, params: any[] = []): T[] {
   if (!db) throw new Error('Database not initialized');
   const stmt = db.prepare(sql);
@@ -69,13 +96,27 @@ export function queryAll<T = any>(sql: string, params: any[] = []): T[] {
   return rows;
 }
 
-// Helper to query single row as typed object
+/**
+ * Helper utility to query a single matching row as a typed Javascript object.
+ * 
+ * @template T
+ * @param {string} sql - Parameterized SQL query string.
+ * @param {any[]} [params=[]] - SQL binding parameters.
+ * @returns {T | null} Single row object if found, or null if no match.
+ */
 export function queryOne<T = any>(sql: string, params: any[] = []): T | null {
   const rows = queryAll<T>(sql, params);
   return rows.length > 0 ? rows[0] : null;
 }
 
-// Helper to execute run command with params
+/**
+ * Helper utility to execute SQL DDL / DML commands (INSERT, UPDATE, DELETE).
+ * Automatically saves database to disk if not running within a transaction.
+ * 
+ * @param {string} sql - Parameterized SQL command.
+ * @param {any[]} [params=[]] - SQL binding parameters.
+ * @returns {{ changes: number }} Number of rows modified by the command.
+ */
 export function runSql(sql: string, params: any[] = []): { changes: number } {
   if (!db) throw new Error('Database not initialized');
   db.run(sql, params);

@@ -28,11 +28,19 @@ app.use('/images', express.static(path.join(__dirname, '../public/images')));
   }
 })();
 
-// ==========================
+// ============================================================================
 // TEMPLE ENDPOINTS
-// ==========================
+// ============================================================================
 
-// Search & list temples
+/**
+ * @route   GET /api/temples
+ * @desc    Search and list temples with optional query filters (search, district, deity)
+ * @query   {string} [search] - Keyword to match in English/Tamil name, city, or district
+ * @query   {string} [district] - Specific Tamil Nadu district filter
+ * @query   {string} [deity] - Presiding deity filter (e.g., Murugan, Shiva, Vishnu)
+ * @returns {200} Array of Temple objects with parsed facilities & rules JSON
+ * @returns {500} Server error message
+ */
 app.get('/api/temples', (req: Request, res: Response) => {
   try {
     const { search, district, deity } = req.query;
@@ -66,7 +74,14 @@ app.get('/api/temples', (req: Request, res: Response) => {
   }
 });
 
-// Single temple details with timings
+/**
+ * @route   GET /api/temples/:id
+ * @desc    Retrieve detailed temple profile by unique ID, including sessions & real-time CCTV crowd telemetry
+ * @params  {string} id - Unique temple identifier (e.g. temple-palani)
+ * @returns {200} Full Temple profile with timings array and live_crowd metrics
+ * @returns {404} Temple not found error
+ * @returns {500} Server error message
+ */
 app.get('/api/temples/:id', (req: Request, res: Response) => {
   try {
     const temple = queryOne('SELECT * FROM temples WHERE id = ?', [req.params.id]);
@@ -87,7 +102,20 @@ app.get('/api/temples/:id', (req: Request, res: Response) => {
   }
 });
 
-// Create temple (Admin)
+/**
+ * @route   POST /api/temples
+ * @desc    Create a new temple and initialize its default session timings (Admin)
+ * @body    {string} name - Official temple English name
+ * @body    {string} [name_tamil] - Official temple Tamil name
+ * @body    {string} district - District location
+ * @body    {string} city - City / Town location
+ * @body    {string} deity - Presiding deity
+ * @body    {number} [default_free_capacity=500] - Default general slot capacity
+ * @body    {number} [default_paid_capacity=100] - Default special line slot capacity
+ * @body    {number} [default_paid_price=100] - Paid darshan ticket price in INR
+ * @returns {201} Created temple ID and success confirmation
+ * @returns {500} Server error message
+ */
 app.post('/api/temples', (req: Request, res: Response) => {
   try {
     const {
@@ -134,7 +162,14 @@ app.post('/api/temples', (req: Request, res: Response) => {
   }
 });
 
-// Update temple (Admin)
+/**
+ * @route   PUT /api/temples/:id
+ * @desc    Update existing temple metadata, capacity defaults, facilities, and rules (Admin)
+ * @params  {string} id - Unique temple identifier
+ * @body    {object} Updated temple parameters (name, image_url, capacities, etc.)
+ * @returns {200} Confirmation message
+ * @returns {500} Server error message
+ */
 app.put('/api/temples/:id', (req: Request, res: Response) => {
   try {
     const {
@@ -166,7 +201,13 @@ app.put('/api/temples/:id', (req: Request, res: Response) => {
   }
 });
 
-// Delete temple (Admin)
+/**
+ * @route   DELETE /api/temples/:id
+ * @desc    Delete a temple and cascade remove associated slots, timings, and bookings (Admin)
+ * @params  {string} id - Unique temple identifier
+ * @returns {200} Confirmation message
+ * @returns {500} Server error message
+ */
 app.delete('/api/temples/:id', (req: Request, res: Response) => {
   try {
     runSql('DELETE FROM temples WHERE id = ?', [req.params.id]);
@@ -177,11 +218,19 @@ app.delete('/api/temples/:id', (req: Request, res: Response) => {
   }
 });
 
-// ==========================
-// SLOT ENDPOINTS
-// ==========================
+// ============================================================================
+// SLOT MANAGEMENT ENDPOINTS
+// ============================================================================
 
-// Get or auto-generate slots for a temple and date
+/**
+ * @route   GET /api/slots
+ * @desc    Fetch existing slots or lazily auto-generate darshan time slots for a specific temple and date
+ * @query   {string} templeId - Target temple identifier
+ * @query   {string} date - Slot date in YYYY-MM-DD format
+ * @returns {200} Array of Slot records with booked vs remaining capacities and availability status
+ * @returns {400} Missing required parameters
+ * @returns {500} Server error message
+ */
 app.get('/api/slots', (req: Request, res: Response) => {
   try {
     const { templeId, date } = req.query;
@@ -196,7 +245,15 @@ app.get('/api/slots', (req: Request, res: Response) => {
   }
 });
 
-// Admin update slot capacity
+/**
+ * @route   PUT /api/slots/:id/capacity
+ * @desc    Dynamically override free and paid capacities for a specific time slot (Admin)
+ * @params  {string} id - Slot ID
+ * @body    {number} free_capacity - New max free capacity
+ * @body    {number} paid_capacity - New max paid capacity
+ * @returns {200} Capacity update confirmation
+ * @returns {500} Server error message
+ */
 app.put('/api/slots/:id/capacity', (req: Request, res: Response) => {
   try {
     const { free_capacity, paid_capacity } = req.body;
@@ -207,11 +264,27 @@ app.put('/api/slots/:id/capacity', (req: Request, res: Response) => {
   }
 });
 
-// ==========================
-// BOOKING ENDPOINTS
-// ==========================
+// ============================================================================
+// BOOKING ENDPOINTS (CONCURRENCY-SAFE TRANSACTIONS)
+// ============================================================================
 
-// Atomic Concurrency-safe Booking Creation (Online & Offline Counter)
+/**
+ * @route   POST /api/bookings
+ * @desc    Atomically reserve darshan tickets for online or physical offline counter visitors.
+ *          Locks the slot within runInTransaction to ensure no overbooking occurs.
+ * @body    {string} temple_id - Unique temple identifier
+ * @body    {string} slot_id - Time slot identifier
+ * @body    {string} darshan_type - 'FREE' or 'PAID'
+ * @body    {string} channel - 'ONLINE' or 'OFFLINE_COUNTER'
+ * @body    {string} primary_visitor_name - Contact devotee name
+ * @body    {string} visitor_phone - Contact telephone number
+ * @body    {string} [visitor_email] - Devotee email address
+ * @body    {Array} visitors - Array of visitor objects [{ name, age, gender, id_proof_type, id_proof_number }]
+ * @body    {string} [counter_staff_id] - Staff ID if booked via physical counter
+ * @body    {string} [counter_number] - Counter station number
+ * @returns {201} Confirmed booking with booking_ref and QR payload
+ * @returns {400} Capacity exhausted or validation error
+ */
 app.post('/api/bookings', (req: Request, res: Response) => {
   try {
     const bookingResult = createBooking(req.body);
@@ -221,7 +294,14 @@ app.post('/api/bookings', (req: Request, res: Response) => {
   }
 });
 
-// Retrieve booking details
+/**
+ * @route   GET /api/bookings/:ref
+ * @desc    Lookup booking details, visitor list, and slot metadata by booking reference code
+ * @params  {string} ref - Booking reference (e.g., TD202603204928)
+ * @returns {200} Booking record with associated visitors and slot info
+ * @returns {404} Booking reference not found
+ * @returns {500} Server error message
+ */
 app.get('/api/bookings/:ref', (req: Request, res: Response) => {
   try {
     const booking = getBookingByRef(req.params.ref);
@@ -232,7 +312,13 @@ app.get('/api/bookings/:ref', (req: Request, res: Response) => {
   }
 });
 
-// Cancel booking
+/**
+ * @route   POST /api/bookings/:ref/cancel
+ * @desc    Cancel an active booking and atomically roll back reserved capacity to the available slot pool
+ * @params  {string} ref - Booking reference
+ * @returns {200} Success response confirming cancellation and rollback
+ * @returns {400} Invalid state error (e.g. already cancelled or attended)
+ */
 app.post('/api/bookings/:ref/cancel', (req: Request, res: Response) => {
   try {
     const result = cancelBooking(req.params.ref);
@@ -242,7 +328,14 @@ app.post('/api/bookings/:ref/cancel', (req: Request, res: Response) => {
   }
 });
 
-// Verify & Attend booking (Gate Staff QR scanner / Lookup)
+/**
+ * @route   POST /api/bookings/:ref/verify
+ * @desc    Verify QR ticket at gate entrance and transition status to ATTENDED.
+ *          Flags duplicate check-in attempts to prevent reuse.
+ * @params  {string} ref - Booking reference
+ * @returns {200} Verification result with devotee details and attended status
+ * @returns {400} Invalid booking or ticket already scanned
+ */
 app.post('/api/bookings/:ref/verify', (req: Request, res: Response) => {
   try {
     const result = verifyAndAttendBooking(req.params.ref);
@@ -252,10 +345,18 @@ app.post('/api/bookings/:ref/verify', (req: Request, res: Response) => {
   }
 });
 
-// ==========================
-// AI CROWD & CCTV ENDPOINTS
-// ==========================
+// ============================================================================
+// AI CROWD TELEMETRY & CCTV VISION ENDPOINTS
+// ============================================================================
 
+/**
+ * @route   GET /api/crowd/live
+ * @desc    Simulate real-time CCTV computer-vision telemetry, queue density, and waiting times via Little's Law
+ * @query   {string} [templeId=temple-palani] - Target temple ID
+ * @query   {string} [cameraId=cam-prakaram] - Target camera node
+ * @returns {200} Live telemetry with bounding boxes, occupancy %, and estimated wait minutes
+ * @returns {500} Server error message
+ */
 app.get('/api/crowd/live', (req: Request, res: Response) => {
   try {
     const { templeId, cameraId } = req.query;
@@ -268,14 +369,27 @@ app.get('/api/crowd/live', (req: Request, res: Response) => {
   }
 });
 
+/**
+ * @route   GET /api/crowd/cameras
+ * @desc    Retrieve all registered surveillance camera feeds across temple zones (Gopuram, Prakaram, Mandapam)
+ * @returns {200} Array of camera metadata with positions and zone descriptions
+ */
 app.get('/api/crowd/cameras', (req: Request, res: Response) => {
   res.json(getAllCameras());
 });
 
-// ==========================
-// AI RECOMMENDATION ENDPOINTS
-// ==========================
+// ============================================================================
+// AI RECOMMENDATIONS & CAPACITY OPTIMIZATION ENDPOINTS
+// ============================================================================
 
+/**
+ * @route   GET /api/ai/recommendations
+ * @desc    Fetch AI-generated dynamic capacity recommendations based on crowd trends and festival forecasts
+ * @query   {string} [templeId=temple-palani] - Target temple ID
+ * @query   {string} [date] - Target slot date
+ * @returns {200} Array of AI recommendations with predicted vs recommended capacity and reasoning
+ * @returns {500} Server error message
+ */
 app.get('/api/ai/recommendations', (req: Request, res: Response) => {
   try {
     const { templeId, date } = req.query;
@@ -288,6 +402,14 @@ app.get('/api/ai/recommendations', (req: Request, res: Response) => {
   }
 });
 
+/**
+ * @route   POST /api/ai/recommendations/:id/approve
+ * @desc    Approve an AI recommendation, updating the corresponding slot's capacity dynamically
+ * @params  {string} id - Recommendation ID
+ * @body    {number} [custom_capacity] - Optional manual override capacity
+ * @returns {200} Approval result confirmation
+ * @returns {400} Recommendation not found or update error
+ */
 app.post('/api/ai/recommendations/:id/approve', (req: Request, res: Response) => {
   try {
     const { custom_capacity } = req.body;
@@ -298,6 +420,13 @@ app.post('/api/ai/recommendations/:id/approve', (req: Request, res: Response) =>
   }
 });
 
+/**
+ * @route   POST /api/ai/recommendations/:id/reject
+ * @desc    Reject an AI recommendation and leave current slot allocations unchanged
+ * @params  {string} id - Recommendation ID
+ * @returns {200} Rejection confirmation
+ * @returns {400} Recommendation not found error
+ */
 app.post('/api/ai/recommendations/:id/reject', (req: Request, res: Response) => {
   try {
     const result = rejectRecommendation(req.params.id);
@@ -307,10 +436,16 @@ app.post('/api/ai/recommendations/:id/reject', (req: Request, res: Response) => 
   }
 });
 
-// ==========================
-// ADMIN DASHBOARD ENDPOINTS
-// ==========================
+// ============================================================================
+// ADMIN DASHBOARD & ANALYTICS ENDPOINTS
+// ============================================================================
 
+/**
+ * @route   GET /api/admin/dashboard
+ * @desc    Fetch high-level operational KPIs, revenue, channel distribution, and hourly devotee flow curves
+ * @returns {200} JSON payload containing KPIs, hourly visitor distribution, and temple breakdowns
+ * @returns {500} Server error message
+ */
 app.get('/api/admin/dashboard', (req: Request, res: Response) => {
   try {
     const totalTemples = queryOne<any>('SELECT COUNT(*) as c FROM temples')?.c || 0;
@@ -380,7 +515,15 @@ app.get('/api/admin/dashboard', (req: Request, res: Response) => {
   }
 });
 
-// List all bookings (Admin)
+/**
+ * @route   GET /api/admin/bookings
+ * @desc    Filter and paginate all bookings across temples, channels, and darshan types (Admin)
+ * @query   {string} [templeId] - Filter by specific temple
+ * @query   {string} [channel] - Filter by booking channel (ONLINE, OFFLINE_COUNTER)
+ * @query   {string} [darshanType] - Filter by darshan type (FREE, PAID)
+ * @returns {200} Array of Booking records with joined temple name and slot timing details
+ * @returns {500} Server error message
+ */
 app.get('/api/admin/bookings', (req: Request, res: Response) => {
   try {
     const { templeId, channel, darshanType } = req.query;
@@ -413,10 +556,20 @@ app.get('/api/admin/bookings', (req: Request, res: Response) => {
   }
 });
 
-// ==========================
-// HELP & CHATBOT ENDPOINTS
-// ==========================
+// ============================================================================
+// HELP & BILINGUAL CHATBOT ENDPOINTS
+// ============================================================================
 
+/**
+ * @route   POST /api/chat
+ * @desc    Process natural language queries in English or தமிழ் regarding tickets, prices, attire, or crowd
+ * @body    {string} message - User query text
+ * @body    {string} [templeId] - Optional selected temple context
+ * @body    {string} [bookingRef] - Optional booking reference code for status lookup
+ * @returns {200} Bilingual response object with reply, reply_tamil, and suggestedActions
+ * @returns {400} Missing message parameter
+ * @returns {500} Server error message
+ */
 app.post('/api/chat', (req: Request, res: Response) => {
   try {
     const { message, templeId, bookingRef } = req.body;
@@ -428,6 +581,13 @@ app.post('/api/chat', (req: Request, res: Response) => {
   }
 });
 
+/**
+ * @route   GET /api/support
+ * @desc    Retrieve 24/7 temple support phone numbers, helpline emails, and frequently asked questions (FAQs)
+ * @returns {200} Global support contact information with parsed FAQs
+ * @returns {404} Support info not found
+ * @returns {500} Server error message
+ */
 app.get('/api/support', (req: Request, res: Response) => {
   try {
     const support = queryOne('SELECT * FROM support_information WHERE id = "global-support"');
@@ -441,6 +601,17 @@ app.get('/api/support', (req: Request, res: Response) => {
   }
 });
 
+/**
+ * @route   PUT /api/support
+ * @desc    Update support contacts and operational hours (Admin)
+ * @body    {string} helpline_phone - Primary telephone helpline
+ * @body    {string} toll_free - Toll-free number
+ * @body    {string} email - Support email address
+ * @body    {string} support_hours - Support operating hours
+ * @body    {string} emergency_phone - Emergency incident desk contact
+ * @returns {200} Update confirmation
+ * @returns {500} Server error message
+ */
 app.put('/api/support', (req: Request, res: Response) => {
   try {
     const { helpline_phone, toll_free, email, support_hours, emergency_phone } = req.body;
@@ -456,7 +627,16 @@ app.put('/api/support', (req: Request, res: Response) => {
   }
 });
 
-// Special days list
+// ============================================================================
+// FESTIVAL & SPECIAL DAYS MANAGEMENT ENDPOINTS
+// ============================================================================
+
+/**
+ * @route   GET /api/special-days
+ * @desc    Retrieve all declared festival dates, expected crowd tiers, and slot capacity multipliers
+ * @returns {200} Array of SpecialDay records with associated temple names
+ * @returns {500} Server error message
+ */
 app.get('/api/special-days', (req: Request, res: Response) => {
   try {
     const days = queryAll(`
@@ -471,6 +651,20 @@ app.get('/api/special-days', (req: Request, res: Response) => {
   }
 });
 
+/**
+ * @route   POST /api/special-days
+ * @desc    Register a special festival event and define an algorithmic slot capacity multiplier (Admin)
+ * @body    {string} temple_id - Temple ID
+ * @body    {string} date - Event date (YYYY-MM-DD)
+ * @body    {string} event_name - Festival event name in English
+ * @body    {string} [event_name_tamil] - Festival event name in Tamil
+ * @body    {string} [special_timings] - Extended darshan operating hours
+ * @body    {string} [expected_crowd_level='HIGH'] - Expected density tier
+ * @body    {number} [slot_capacity_modifier=1.2] - Capacity expansion/reduction multiplier
+ * @body    {string} [booking_notes] - Instructions for devotees
+ * @returns {201} Creation confirmation
+ * @returns {500} Server error message
+ */
 app.post('/api/special-days', (req: Request, res: Response) => {
   try {
     const { temple_id, date, event_name, event_name_tamil, special_timings, expected_crowd_level, slot_capacity_modifier, booking_notes } = req.body;
@@ -490,7 +684,11 @@ app.post('/api/special-days', (req: Request, res: Response) => {
   }
 });
 
-// Health check
+/**
+ * @route   GET /api/health
+ * @desc    Liveness and operational health probe for load balancers and system monitoring
+ * @returns {200} Server health status, application metadata, and server timestamp
+ */
 app.get('/api/health', (req: Request, res: Response) => {
   res.json({ status: 'HEALTHY', app: 'AI Temple Dharisanam & Crowd Management System', timestamp: new Date().toISOString() });
 });
@@ -511,7 +709,7 @@ process.on('SIGTERM', () => {
   clearInterval(backgroundCrowdWorker);
 });
 
-app.listen(PORT, () => {
-  console.log(`Backend server running on http://localhost:${PORT}`);
+app.listen(Number(PORT), '0.0.0.0', () => {
+  console.log(`Backend server running on http://0.0.0.0:${PORT}`);
   console.log(`Background crowd telemetry worker active (30s interval).`);
 });

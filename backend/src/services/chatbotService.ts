@@ -102,6 +102,14 @@ export function handleChatbotQuery(userMessage: string, templeId?: string, booki
     };
   }
 
+  // 10. Dress code / Temple attire regulations
+  if (msg.includes('dress') || msg.includes('cloth') || msg.includes('attire') || msg.includes('wear') || msg.includes('ஆடை') || msg.includes('உடை')) {
+    return {
+      reply: `Devotees are requested to adhere to traditional attire regulations: Men are permitted in Dhoti/Veshti with Shirt or Kurta/Pyjama (or upper cloth). Women are permitted in Sarees, Half Sarees, or Salwar Kameez with Dupatta. Western casuals like shorts and ripped jeans are strictly prohibited.`,
+      reply_tamil: `பக்தர்கள் பாரம்பரிய ஆடைகளை அணிந்து வரக் கேட்டுக்கொள்ளப்படுகிறார்கள்: ஆண்கள் வேட்டி, சட்டை அல்லது குர்தா/பைஜாமா. பெண்கள் புடவை, தாவணி அல்லது துப்பட்டாவுடன் கூடிய சுடிதார். ஜீன்ஸ், டி-சர்ட் மற்றும் அரைக்கால் சட்டைகள் அனுமதிக்கப்படாது.`
+    };
+  }
+
   // Default fallback
   const support = queryOne<any>('SELECT * FROM support_information WHERE id = "global-support"');
   const helpline = support?.helpline_phone || '+91 44 2833 9999';
